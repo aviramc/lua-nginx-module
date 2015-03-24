@@ -13,12 +13,13 @@
 #include <ngx_http.h>
 
 #include <lua.h>
+#include <stdint.h>
 
 
 /* Public API for other Nginx modules */
 
 
-#define ngx_http_lua_version  9004
+#define ngx_http_lua_version  9016
 
 
 typedef struct {
@@ -33,9 +34,9 @@ typedef struct {
 } ngx_http_lua_value_t;
 
 
-lua_State * ngx_http_lua_get_global_state(ngx_conf_t *cf);
+lua_State *ngx_http_lua_get_global_state(ngx_conf_t *cf);
 
-ngx_http_request_t * ngx_http_lua_get_request(lua_State *L);
+ngx_http_request_t *ngx_http_lua_get_request(lua_State *L);
 
 ngx_int_t ngx_http_lua_add_package_preload(ngx_conf_t *cf, const char *package,
     lua_CFunction func);
