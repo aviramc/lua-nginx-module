@@ -100,6 +100,7 @@ struct ngx_http_lua_socket_tcp_upstream_s {
     unsigned                         read_waiting:1;
     unsigned                         write_waiting:1;
     unsigned                         eof:1;
+    unsigned                         fake_eof:1;
     unsigned                         body_downstream:1;
     unsigned                         raw_downstream:1;
     unsigned                         read_closed:1;
