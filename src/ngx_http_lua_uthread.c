@@ -208,7 +208,7 @@ ngx_http_lua_uthread_kill(lua_State *L)
     lua_State                   *sub_co;
     ngx_http_request_t          *r;
     ngx_http_lua_ctx_t          *ctx;
-    ngx_http_lua_co_ctx_t       *coctx, *sub_coctx;
+    ngx_http_lua_co_ctx_t       *sub_coctx;
 
     r = ngx_http_lua_get_req(L);
     if (r == NULL) {
@@ -224,8 +224,6 @@ ngx_http_lua_uthread_kill(lua_State *L)
                                | NGX_HTTP_LUA_CONTEXT_ACCESS
                                | NGX_HTTP_LUA_CONTEXT_CONTENT
                                | NGX_HTTP_LUA_CONTEXT_TIMER);
-
-    coctx = ctx->cur_co_ctx;
 
     sub_co = lua_tothread(L, 1);
     luaL_argcheck(L, sub_co, 1, "lua thread expected");
