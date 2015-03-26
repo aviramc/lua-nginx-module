@@ -365,6 +365,8 @@ typedef struct ngx_http_lua_ctx_s {
     unsigned                 flushing_coros; /* number of coroutines waiting on
                                                 ngx.flush(true) */
 
+    ngx_http_request_t      *current_subrequest_body_streaming;
+
     ngx_chain_t             *out;  /* buffered output chain for HTTP 1.0 */
     ngx_chain_t             *free_bufs;
     ngx_chain_t             *busy_bufs;
