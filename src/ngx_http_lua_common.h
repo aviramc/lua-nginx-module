@@ -281,6 +281,7 @@ typedef struct ngx_http_lua_posted_thread_s  ngx_http_lua_posted_thread_t;
 
 struct ngx_http_lua_posted_thread_s {
     ngx_http_lua_co_ctx_t               *co_ctx;
+    ngx_int_t                            nrets;
     ngx_http_lua_posted_thread_t        *next;
 };
 
@@ -409,9 +410,6 @@ typedef struct ngx_http_lua_ctx_s {
     ngx_int_t                  returned_headers;
     ngx_http_lua_co_ctx_t     *calling_coctx; /* co ctx for the caller to location.capture */
 #endif
-
-    ngx_http_lua_co_ctx_t   *downstream_co_ctx; /* co ctx for the coroutine
-                                                   reading the request body */
 
     ngx_uint_t               index;              /* index of the current
                                                     subrequest in its parent
