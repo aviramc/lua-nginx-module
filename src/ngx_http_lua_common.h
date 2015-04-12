@@ -398,9 +398,6 @@ typedef struct ngx_http_lua_ctx_s {
     ngx_http_lua_co_ctx_t     *calling_coctx; /* co ctx for the caller to location.capture */
 #endif
 
-    ngx_http_lua_co_ctx_t   *downstream_co_ctx; /* co ctx for the coroutine
-                                                   reading the request body */
-
     ngx_uint_t               index;              /* index of the current
                                                     subrequest in its parent
                                                     request */
