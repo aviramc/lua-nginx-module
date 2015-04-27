@@ -97,11 +97,9 @@ static ngx_int_t ngx_http_lua_copy_in_file_request_body(ngx_http_request_t *r);
 static ngx_int_t ngx_http_lua_copy_request_headers(ngx_http_request_t *sr,
     ngx_http_request_t *r);
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
 static int ngx_http_lua_ngx_location_capture_stream(lua_State *L);
 static int ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L);
 static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_lua_ctx_t *ctx, u_char ** dest_buffer, unsigned long * length);
-#endif
 
 static void ngx_http_lua_subrequest_read_streaming_body(ngx_http_request_t *r);
 
@@ -135,7 +133,6 @@ ngx_http_lua_ngx_location_capture(lua_State *L)
     return ngx_http_lua_ngx_location_capture_multi(L);
 }
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
 static int
 ngx_http_lua_ngx_location_capture_stream(lua_State *L)
 {
@@ -179,7 +176,7 @@ ngx_http_lua_ngx_location_capture_stream(lua_State *L)
 
     return ngx_http_lua_ngx_location_capture_multi(L);
 }
-#endif
+
 
 static int
 ngx_http_lua_ngx_location_capture_multi(lua_State *L)
@@ -758,16 +755,15 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
 
     ctx->no_abort = 1;
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     /* Different resume handler for async requests. */
     if (ctx->async_capture) {
         ctx->resume_handler = ngx_http_lua_ngx_capture_buffer_handler;
     }
-#endif
     
     return lua_yield(L, 0);
 }
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
+
+
 static void
 _create_headers_table(lua_State *L, ngx_http_request_t *request)
 {
@@ -995,6 +991,7 @@ static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_
     for (cl = ctx->current_subrequest_ctx->body; cl; cl = cl->next) {
         current_buffer = ngx_copy(current_buffer, cl->buf->pos, cl->buf->last - cl->buf->pos);
         cl->buf->last = cl->buf->pos;
+        ngx_pfree(r->pool, cl->buf->start);
     }
 
     /* TODO: Is this call needed? */
@@ -1040,8 +1037,8 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
         goto error_handling;
     }
 
-    if (buffer_length == 0) {
-        ctx->current_subrequest_buffer = NULL;
+    if (buffer_length == 0 && !ctx->current_subrequest_ctx->run_post_subrequest) {
+        return NGX_OK;
     }
 
     /* Headers are to be returned only once. */
@@ -1105,7 +1102,7 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
     ngx_http_lua_finalize_request(r, NGX_ERROR);
     return NGX_ERROR;
 }
-#endif
+
 
 static ngx_int_t
 ngx_http_lua_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method,
@@ -1598,10 +1595,9 @@ ngx_http_lua_post_subrequest(ngx_http_request_t *r, void *data, ngx_int_t rc)
 
     body_str->len = len;
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     /* If we're in capture streaming mode, we want to keep the buffer, and to free it from the resume handler's context. */
     if (!pr_ctx->async_capture) {
-#endif
+
     if (len == 0) {
         body_str->data = NULL;
 
@@ -1640,9 +1636,7 @@ ngx_http_lua_post_subrequest(ngx_http_request_t *r, void *data, ngx_int_t rc)
 
         dd("free bufs: %p", pr_ctx->free_bufs);
     }
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     }
-#endif
 
     ngx_http_post_request_to_head(pr);
 
@@ -1991,14 +1985,12 @@ ngx_http_lua_inject_subrequest_api(lua_State *L)
     lua_pushcfunction(L, ngx_http_lua_ngx_location_capture);
     lua_setfield(L, -2, "capture");
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     lua_pushcfunction(L, ngx_http_lua_ngx_location_capture_stream);
     lua_setfield(L, -2, "capture_stream");
 
     /* TODO: Call this 'get_subrequest_body_chunk' */
     lua_pushcfunction(L, ngx_http_lua_ngx_location_get_subrequest_buffer);
     lua_setfield(L, -2, "get_subrequest_buffer");
-#endif
     
     lua_pushcfunction(L, ngx_http_lua_ngx_location_capture_multi);
     lua_setfield(L, -2, "capture_multi");
@@ -2156,8 +2148,6 @@ ngx_http_lua_subrequest_resume(ngx_http_request_t *r)
 
     dd("nsubreqs: %d", (int) coctx->nsubreqs);
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
-    
     if (ctx->async_capture) {
         if (!ctx->returned_headers) {
             _create_headers_table(coctx->co, ctx->current_subrequest);
@@ -2165,19 +2155,15 @@ ngx_http_lua_subrequest_resume(ngx_http_request_t *r)
             ctx->returned_headers = 1;
             returned_values = 3;
         } else {
+
             returned_values = 1;
         }
         lua_pushnil(coctx->co);
     } else {
         
-#endif
-        
         ngx_http_lua_handle_subreq_responses(r, ctx);
         returned_values = coctx->nsubreqs;
-        
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     }
-#endif
 
     dd("free sr_statues/headers/bodies memory ASAP");
 

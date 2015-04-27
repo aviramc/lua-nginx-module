@@ -402,14 +402,11 @@ typedef struct ngx_http_lua_ctx_s {
                                                         reading the request body */
     ngx_http_lua_co_ctx_t   *downstream_write_co_ctx; /* co ctx for the coroutine
                                                         writing the request body */
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     ngx_int_t                  async_capture;
     ngx_http_request_t        *current_subrequest;
     struct ngx_http_lua_ctx_s *current_subrequest_ctx;
-    ngx_chain_t               *current_subrequest_buffer;
     ngx_int_t                  returned_headers;
     ngx_http_lua_co_ctx_t     *calling_coctx; /* co ctx for the caller to location.capture */
-#endif
 
     ngx_uint_t               index;              /* index of the current
                                                     subrequest in its parent
@@ -451,10 +448,8 @@ typedef struct ngx_http_lua_ctx_s {
     unsigned         headers_set:1; /* whether the user has set custom
                                        response headers */
 
-#ifdef NGX_LUA_CAPTURE_DOWN_STREAMING
     unsigned         wakeup_subrequest:1;
     unsigned         subrequest_yield:1;
-#endif
     
     unsigned         entered_rewrite_phase:1;
     unsigned         entered_access_phase:1;
