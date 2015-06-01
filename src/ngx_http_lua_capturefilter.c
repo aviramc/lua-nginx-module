@@ -47,6 +47,7 @@ ngx_http_lua_capture_header_filter(ngx_http_request_t *r)
     ngx_http_post_subrequest_t      *psr;
     ngx_http_lua_ctx_t              *old_ctx;
     ngx_http_lua_ctx_t              *ctx;
+    ngx_http_lua_ctx_t              *pr_ctx;
 
     ngx_http_lua_post_subrequest_data_t      *psr_data;
 
@@ -101,6 +102,19 @@ ngx_http_lua_capture_header_filter(ngx_http_request_t *r)
 
         if (r->method == NGX_HTTP_HEAD) {
             r->header_only = 1;
+        }
+
+        pr_ctx = ngx_http_get_module_ctx(r->parent, ngx_http_lua_module);
+        if (pr_ctx == NULL) {
+            return NGX_ERROR;
+        }
+
+        if (pr_ctx->async_capture) {
+            r->parent->write_event_handler = ngx_http_lua_content_wev_handler;
+        
+            if (ngx_http_post_request(r->parent, NULL) != NGX_OK) {
+                return NGX_ERROR;
+            }
         }
 
         return NGX_OK;

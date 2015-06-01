@@ -810,8 +810,20 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
 {
     ngx_http_request_t          *r = NULL;
     ngx_http_lua_ctx_t          *ctx = NULL;
+    ngx_http_lua_ctx_t          *sr_ctx = NULL;
     unsigned long                buffer_length = 0;
     u_char                      *current_buffer = NULL;
+    ngx_http_lua_loc_conf_t     *llcf;
+    double                       buffer_size;
+    int                          n;
+    int                          type;
+
+    n = lua_gettop(L);
+
+    /* TODO: nowait */
+    if (n < 0 || n > 2) {
+        return luaL_error(L, "expecting between 0 and 2 arguments");
+    }
 
     r = ngx_http_lua_get_req(L);
 
@@ -824,12 +836,32 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
         return luaL_error(L, "no ctx found");
     }
 
-    if ((!ctx->async_capture) || (ctx->current_subrequest_ctx == NULL)) {
+    sr_ctx = ctx->current_subrequest_ctx;
+
+    if ((!ctx->async_capture) || (sr_ctx == NULL)) {
         return luaL_error(L, "no capture streaming currently");
     }
 
+    llcf = ngx_http_get_module_loc_conf(r, ngx_http_lua_module);
+    sr_ctx->subrequest_buffer_size = llcf->subrequest_buffer_size;
+
+    if (n >= 1) {
+        /* buffer size parameter */
+
+        type = lua_type(L, 1);
+
+        if (type == LUA_TNUMBER) {
+            buffer_size = lua_tonumber(L, 1);
+            if (buffer_size <= 0) {
+                return luaL_error(L, "buffer_size parameter must be positive");
+            }
+
+            sr_ctx->subrequest_buffer_size = (size_t) buffer_size;
+        }
+    }
+
     /* If there are chunks currently, we should return them immediately. Otherwise, wait.. */
-    if (ctx->current_subrequest_ctx->body) {
+    if (sr_ctx->body) {
         if (_prepare_subrequest_body_chunk(r, ctx, &current_buffer, &buffer_length) != NGX_OK) {
             return luaL_error(L, "memory allocation failure");
         }
@@ -841,7 +873,7 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
     }
 
     /* If the body is NULL and the post subrequest handler was called, this means there are no more buffers. */
-    if (ctx->current_subrequest_ctx->run_post_subrequest) {
+    if (sr_ctx->run_post_subrequest) {
         /* TODO: Tight coupling between the ctx and the request object. */
         ctx->current_subrequest_ctx = NULL;
         ctx->current_subrequest = NULL;
@@ -857,27 +889,61 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
 }
 
 
-static unsigned long _get_chain_size(ngx_chain_t *in)
+static unsigned long _cl_size(ngx_chain_t *cl)
 {
-    ngx_chain_t *current_chain_link = NULL;
-    unsigned long chain_link_size = 0;
+    return cl->buf->last - cl->buf->pos;
+}
 
-    for (current_chain_link = in, chain_link_size = 0; current_chain_link != NULL ;current_chain_link = current_chain_link->next) {
-        chain_link_size += current_chain_link->buf->last - current_chain_link->buf->pos;
+
+static unsigned long _get_chains(ngx_chain_t *in, ngx_chain_t **plast, unsigned long max_size)
+{
+    ngx_chain_t *cl;
+    unsigned long total_size = 0;
+
+    for (cl = in; cl != NULL && _cl_size(cl) + total_size <= max_size; cl = cl->next) {
+        total_size += _cl_size(cl);
     }
 
-    return chain_link_size;
+    *plast = cl;
+
+    return total_size;
 }
 
 
 static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_lua_ctx_t *ctx, u_char ** dest_buffer, unsigned long * length)
 {
-    ngx_chain_t                 *cl;
+    ngx_chain_t                 *cl, *cl_start, *cl_end;
     unsigned long                buffer_length = 0;
     u_char                      *current_buffer;
+    ngx_http_lua_ctx_t          *sr_ctx;
+
+    sr_ctx = ctx->current_subrequest_ctx;
+    cl_start = sr_ctx->body;
+
+    /* TODO: Make the max passed here a parameter of the function */
+    buffer_length = _get_chains(cl_start, &cl_end, sr_ctx->subrequest_buffer_size);
+
+    if (buffer_length == 0) {
+        if (cl_start == NULL) {
+            *length = 0;
+            return NGX_OK;
+        } else {
+            buffer_length = sr_ctx->subrequest_buffer_size;
+            current_buffer = ngx_palloc(r->pool, buffer_length);
+            if (current_buffer == NULL) {
+                return NGX_ERROR;
+            }
+            *length = buffer_length;
+            *dest_buffer = current_buffer;
+            cl = sr_ctx->body;
+
+            current_buffer = ngx_copy(current_buffer, cl->buf->pos, buffer_length);
+            cl->buf->pos = cl->buf->pos + buffer_length;
+
+            return NGX_OK;
+        }
+    }
     
-    /* Prepare the buffer for the callback */
-    buffer_length = _get_chain_size(ctx->current_subrequest_ctx->body);
     current_buffer = ngx_palloc(r->pool, buffer_length);
     if (current_buffer == NULL) {
         return NGX_ERROR;
@@ -886,24 +952,20 @@ static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_
     *length = buffer_length;
     *dest_buffer = current_buffer;
 
-    /* TODO: Support the limitation of the buffer size */
-    for (cl = ctx->current_subrequest_ctx->body; cl; cl = cl->next) {
+    for (cl = cl_start; cl != cl_end; cl = cl->next) {
         current_buffer = ngx_copy(current_buffer, cl->buf->pos, cl->buf->last - cl->buf->pos);
         cl->buf->last = cl->buf->pos;
         ngx_pfree(r->pool, cl->buf->start);
     }
-
-    /* TODO: Is this call needed? */
-    ngx_chain_update_chains(r->pool,
-                            &ctx->free_bufs, &ctx->busy_bufs,
-                            &ctx->body,
-                            (ngx_buf_tag_t) &ngx_http_lua_module);
     
-    ctx->current_subrequest_ctx->body = NULL;
-    ctx->current_subrequest_ctx->last_body = &(ctx->current_subrequest_ctx->body);
+    sr_ctx->body = cl;
+    if (cl == NULL) {
+        sr_ctx->last_body = &(sr_ctx->body);
+    }
 
     return NGX_OK;
 }
+
 
 ngx_int_t
 ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
@@ -911,18 +973,18 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
     ngx_http_lua_ctx_t          *ctx;
     unsigned long                buffer_length = 0;
     u_char                      *current_buffer;
-    ngx_http_lua_co_ctx_t   *current_co_ctx;
-    lua_State * co;
-    ngx_int_t rc;
-    int returned_values;
-    ngx_http_lua_main_conf_t    *lmcf;
+    ngx_http_lua_co_ctx_t       *current_co_ctx;
+    lua_State                   *co;
+    ngx_int_t                    rc;
+    int                          returned_values;
+    lua_State                   *vm;
 
-    lmcf = ngx_http_get_module_main_conf(r, ngx_http_lua_module);
-    
     ctx = ngx_http_get_module_ctx(r, ngx_http_lua_module);
     if (ctx == NULL) {
         goto error_handling;
     }
+
+    vm = ngx_http_lua_get_lua_vm(r, ctx);
 
     if ((!ctx->current_subrequest_ctx) || (!ctx->current_subrequest)) {
         return NGX_AGAIN;
@@ -932,30 +994,33 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
     ctx->cur_co_ctx = ctx->calling_coctx;
     co = ctx->cur_co_ctx->co;
 
-    if (_prepare_subrequest_body_chunk(r, ctx, &current_buffer, &buffer_length) != NGX_OK) {
-        goto error_handling;
-    }
-
-    if (buffer_length == 0 && !ctx->current_subrequest_ctx->run_post_subrequest) {
-        return NGX_OK;
-    }
-
     /* Headers are to be returned only once. */
     if (!ctx->returned_headers) {
         _create_headers_table(co, ctx->current_subrequest);
         lua_pushinteger(co, ctx->current_subrequest->headers_out.status);
+
+        returned_values = 2;
+
         ctx->returned_headers = 1;
-        returned_values = 3;
     } else {
+
+        if (_prepare_subrequest_body_chunk(r, ctx, &current_buffer, &buffer_length) != NGX_OK) {
+            goto error_handling;
+        }
+
+        if (buffer_length == 0 && !ctx->current_subrequest_ctx->run_post_subrequest) {
+            return NGX_OK;
+        }
+
         returned_values = 1;
+        lua_pushlstring(co, (char *) current_buffer, buffer_length);
+
+        /* Free the buffer that was copied to Lua */
+        ngx_pfree(r->pool, current_buffer);
     }
     
-    lua_pushlstring(co, (char *) current_buffer, buffer_length);
-    /* Free the buffer that was copied to Lua */
-    ngx_pfree(r->pool, current_buffer);
-
     ctx->subrequest_yield = 0;
-    rc = ngx_http_lua_run_thread(lmcf->lua, r, ctx, returned_values);
+    rc = ngx_http_lua_run_thread(vm, r, ctx, returned_values);
 
     ctx->cur_co_ctx = current_co_ctx;
     
@@ -966,15 +1031,7 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
 
            If a Lua function needs waiting, we'll remove our resume handler.
            If we need waiting, we shall keep it.
-           Anyway, if the subrequest isn't over, we should try to wake it up.
          */
-        if ((!ctx->current_subrequest_ctx || !ctx->current_subrequest_ctx->seen_last_for_subreq)
-            && (!ctx->current_subrequest || !ctx->current_subrequest->done))
-        {
-            ctx->wakeup_subrequest = 1;
-        } else {
-            ctx->wakeup_subrequest = 0;
-        }
 
         if (ctx->subrequest_yield) {
             ctx->subrequest_yield = 0;
@@ -987,7 +1044,7 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
 
     if (rc == NGX_DONE) {
         ngx_http_lua_finalize_request(r, NGX_DONE);
-        return ngx_http_lua_run_posted_threads(r->connection, lmcf->lua, r, ctx);
+        return ngx_http_lua_run_posted_threads(r->connection, vm, r, ctx);
     }
 
     if (ctx->entered_content_phase) {
@@ -1997,7 +2054,7 @@ ngx_http_lua_subrequest_resume(ngx_http_request_t *r)
             _create_headers_table(coctx->co, ctx->current_subrequest);
             lua_pushinteger(coctx->co, ctx->current_subrequest->headers_out.status);
             ctx->returned_headers = 1;
-            returned_values = 3;
+            returned_values = 2;
         } else {
 
             returned_values = 1;
