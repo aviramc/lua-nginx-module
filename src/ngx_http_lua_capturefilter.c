@@ -169,12 +169,6 @@ ngx_http_lua_capture_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (pr_ctx->async_capture) {
-        /* In order to wake the parent up, we should call post and not discard
-           the buffer */
-        /* TODO: Move this to the creation of the subrequest */
-        pr_ctx->current_subrequest = r;       /* Required for wake up */
-        pr_ctx->current_subrequest_ctx = ctx; /* Required for the buffer */
-
         r->parent->write_event_handler = ngx_http_lua_content_wev_handler;
 
         if (!eof) {

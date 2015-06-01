@@ -654,6 +654,9 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
     /* Different resume handler for async requests. */
     if (ctx->async_capture) {
         ctx->resume_handler = ngx_http_lua_ngx_capture_buffer_handler;
+
+        ctx->current_subrequest = sr;
+        ctx->current_subrequest_ctx = sr_ctx;
     }
     
     return lua_yield(L, 0);
