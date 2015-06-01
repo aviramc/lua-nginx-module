@@ -812,6 +812,7 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
     ngx_http_lua_ctx_t          *ctx = NULL;
     ngx_http_lua_ctx_t          *sr_ctx = NULL;
     unsigned long                buffer_length = 0;
+    ngx_int_t                    nowait;
     u_char                      *current_buffer = NULL;
     ngx_http_lua_loc_conf_t     *llcf;
     double                       buffer_size;
@@ -820,7 +821,6 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
 
     n = lua_gettop(L);
 
-    /* TODO: nowait */
     if (n < 0 || n > 2) {
         return luaL_error(L, "expecting between 0 and 2 arguments");
     }
@@ -860,6 +860,16 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
         }
     }
 
+    nowait = 0;
+    if (n == 2) {
+        /* nowait parameter */
+        type = lua_type(L, 2);
+
+        if (type == LUA_TBOOLEAN) {
+            nowait = lua_toboolean(L, 2);
+        }
+    }
+
     /* If there are chunks currently, we should return them immediately. Otherwise, wait.. */
     if (sr_ctx->body) {
         if (_prepare_subrequest_body_chunk(r, ctx, &current_buffer, &buffer_length) != NGX_OK) {
@@ -879,6 +889,11 @@ ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L)
         ctx->current_subrequest = NULL;
         ctx->resume_handler = ngx_http_lua_wev_handler;
         return 0;
+    }
+
+    if (nowait) {
+        lua_pushlstring(L, "", 0);
+        return 1;
     }
     
     ctx->resume_handler = ngx_http_lua_ngx_capture_buffer_handler;
