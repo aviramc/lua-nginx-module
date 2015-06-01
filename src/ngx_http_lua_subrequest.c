@@ -973,6 +973,11 @@ static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_
         ngx_pfree(r->pool, cl->buf->start);
     }
     
+    ngx_chain_update_chains(r->pool,
+                            &ctx->free_bufs, &ctx->busy_bufs,
+                            &ctx->body,
+                            (ngx_buf_tag_t) &ngx_http_lua_module);
+
     sr_ctx->body = cl;
     if (cl == NULL) {
         sr_ctx->last_body = &(sr_ctx->body);
