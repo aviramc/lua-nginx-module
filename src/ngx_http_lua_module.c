@@ -451,6 +451,14 @@ static ngx_command_t ngx_http_lua_cmds[] = {
 
 #endif  /* NGX_HTTP_SSL */
 
+    { ngx_string("lua_subrequest_buffer_size"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF
+          |NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_lua_loc_conf_t, subrequest_buffer_size),
+      NULL },
+
     ngx_null_command
 };
 
@@ -805,6 +813,7 @@ ngx_http_lua_create_loc_conf(ngx_conf_t *cf)
     conf->read_timeout = NGX_CONF_UNSET_MSEC;
     conf->send_lowat = NGX_CONF_UNSET_SIZE;
     conf->buffer_size = NGX_CONF_UNSET_SIZE;
+    conf->subrequest_buffer_size = NGX_CONF_UNSET_SIZE;
     conf->pool_size = NGX_CONF_UNSET_UINT;
 
     conf->transform_underscores_in_resp_headers = NGX_CONF_UNSET;
@@ -913,6 +922,10 @@ ngx_http_lua_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_size_value(conf->buffer_size,
                               prev->buffer_size,
+                              (size_t) ngx_pagesize);
+
+    ngx_conf_merge_size_value(conf->subrequest_buffer_size,
+                              prev->subrequest_buffer_size,
                               (size_t) ngx_pagesize);
 
     ngx_conf_merge_uint_value(conf->pool_size, prev->pool_size, 30);
