@@ -236,6 +236,8 @@ typedef struct {
     size_t                           send_lowat;
     size_t                           buffer_size;
 
+    size_t                           subrequest_buffer_size;
+
     ngx_uint_t                       pool_size;
 
     ngx_flag_t                       transform_underscores_in_resp_headers;
@@ -379,6 +381,8 @@ typedef struct ngx_http_lua_ctx_s {
                                       chains */
 
     ngx_chain_t            **last_body; /* for the "body" field */
+
+    size_t                   subrequest_buffer_size;
 
     ngx_str_t                exec_uri;
     ngx_str_t                exec_args;
