@@ -1110,7 +1110,9 @@ ngx_http_lua_ngx_capture_buffer_handler(ngx_http_request_t *r)
 
     vm = ngx_http_lua_get_lua_vm(r, ctx);
 
-    if ((!ctx->current_subrequest_ctx) || (!ctx->current_subrequest)) {
+    if (!ctx->current_subrequest_ctx
+        || !ctx->current_subrequest
+        || !ctx->current_subrequest_ctx->header_sent) {
         return NGX_AGAIN;
     }
 
