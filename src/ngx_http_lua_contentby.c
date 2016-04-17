@@ -20,7 +20,6 @@
 
 static void ngx_http_lua_content_phase_post_read(ngx_http_request_t *r);
 
-
 ngx_int_t
 ngx_http_lua_content_by_chunk(lua_State *L, ngx_http_request_t *r)
 {
@@ -137,7 +136,7 @@ ngx_http_lua_content_wev_handler(ngx_http_request_t *r)
         return;
     }
 
-    (void) ctx->resume_handler(r);
+    ctx->resume_handler(r);
 }
 
 

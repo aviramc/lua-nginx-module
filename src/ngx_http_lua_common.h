@@ -285,6 +285,8 @@ typedef struct {
     size_t                           send_lowat;
     size_t                           buffer_size;
 
+    size_t                           subrequest_buffer_size;
+
     ngx_uint_t                       pool_size;
 
     ngx_flag_t                       transform_underscores_in_resp_headers;
@@ -431,11 +433,21 @@ typedef struct ngx_http_lua_ctx_s {
 
     ngx_chain_t            **last_body; /* for the "body" field */
 
+    size_t                   subrequest_buffer_size;
+
     ngx_str_t                exec_uri;
     ngx_str_t                exec_args;
 
     ngx_int_t                exit_code;
 
+    ngx_int_t                  async_capture;
+    ngx_http_request_t        *current_subrequest;
+    struct ngx_http_lua_ctx_s *current_subrequest_ctx;
+    ngx_int_t                  returned_headers;
+    ngx_http_lua_co_ctx_t     *calling_coctx; /* co ctx for the caller to location.capture */
+
+    ngx_http_lua_co_ctx_t   *downstream_co_ctx; /* co ctx for the coroutine
+                                                   reading the request body */
     void                    *downstream;  /* can be either
                                              ngx_http_lua_socket_tcp_upstream_t
                                              or ngx_http_lua_co_ctx_t */
@@ -480,6 +492,9 @@ typedef struct ngx_http_lua_ctx_s {
     unsigned         headers_set:1; /* whether the user has set custom
                                        response headers */
 
+    unsigned         wakeup_subrequest:1;
+    unsigned         subrequest_yield:1;
+    
     unsigned         entered_rewrite_phase:1;
     unsigned         entered_access_phase:1;
     unsigned         entered_content_phase:1;
