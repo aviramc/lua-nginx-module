@@ -101,6 +101,7 @@ static int ngx_http_lua_ngx_location_capture_stream(lua_State *L);
 static int ngx_http_lua_ngx_location_get_subrequest_buffer(lua_State *L);
 static ngx_int_t _prepare_subrequest_body_chunk(ngx_http_request_t *r, ngx_http_lua_ctx_t *ctx, u_char ** dest_buffer, unsigned long * length);
 
+static void ngx_http_lua_subrequest_read_streaming_body(ngx_http_request_t *r);
 
 /* ngx.location.capture is just a thin wrapper around
  * ngx.location.capture_multi */
@@ -197,6 +198,7 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
     int                              rc;
     int                              n;
     int                              always_forward_body = 0;
+    int                              body_stream = 0;
     ngx_uint_t                       method;
     ngx_http_request_body_t         *body;
     int                              type;
@@ -542,6 +544,14 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
 
             dd("queries query uri opts ctx?: %d", lua_gettop(L));
 
+            /* check the "body_stream" option */
+
+            lua_getfield(L, 4, "body_stream");
+
+            body_stream = lua_toboolean(L, -1);
+            
+            lua_pop(L, 1); /* pop the body */
+
             /* check the "body" option */
 
             lua_getfield(L, 4, "body");
@@ -551,6 +561,10 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
             if (type != LUA_TNIL) {
                 if (type != LUA_TSTRING && type != LUA_TNUMBER) {
                     return luaL_error(L, "Bad http request body");
+                }
+
+                if (body_stream) {
+                    return luaL_error(L, "Cannot use options body_stream and body");
                 }
 
                 body = ngx_pcalloc(r->pool, sizeof(ngx_http_request_body_t));
@@ -694,6 +708,20 @@ ngx_http_lua_ngx_location_capture_multi(lua_State *L)
 
         if (rc != NGX_OK) {
             return luaL_error(L, "failed to issue subrequest: %d", (int) rc);
+        }
+
+        /* XXX: The following is relevant only if there actually is a request body,
+                though if there isn't it won't hard. It's good practice anyway.
+         */
+        if (body_stream && r->headers_in.content_length_n > 0) {
+            always_forward_body = 1;
+            r->read_event_handler = ngx_http_lua_subrequest_read_streaming_body;
+            /* XXX: Setting expected_tested makes Nginx return directly to the client a "HTTP/1.1 100 Continue" response
+                    before sending the actual response.
+                    Usually in subrequests this parameter is set to 1, but here we wanna talk directly to the client...
+             */
+            sr->expect_tested = 0;
+            ctx->current_subrequest_body_streaming = sr;
         }
 
         ngx_http_lua_init_ctx(sr, sr_ctx);
@@ -1330,6 +1358,52 @@ ngx_http_lua_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method,
     }
 
     return ngx_http_lua_subrequest_add_extra_vars(sr, extra_vars);
+}
+
+
+static void
+ngx_http_lua_subrequest_read_streaming_body(ngx_http_request_t *r)
+{
+    ngx_http_lua_ctx_t *ctx;
+    ngx_http_request_t *subrequest;
+    
+    /* XXX: Nginx will call this event handler because the request object is stored
+            within the connection object for which an event has arrived (in the field
+            connection->data). So as a hack, we call the subrequest's read handler from here.
+     */
+    
+    ctx = ngx_http_get_module_ctx(r, ngx_http_lua_module);
+    if (ctx == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no lua module ctx found");
+        goto error_handling;
+    }
+
+    if (ctx->current_subrequest_body_streaming == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no subrequest found, possible bug");
+        goto error_handling;
+    }
+
+    /* Call the subrequest's read handler so that it would read the body. */
+    subrequest = ctx->current_subrequest_body_streaming;
+    if (subrequest->done) {
+        goto subrequest_ended;
+    }
+    subrequest->read_event_handler(subrequest);
+
+    /* If no more reading is possible, revert the read handler */
+    if ((subrequest->request_body == NULL) || subrequest->request_body->rest == 0) {
+        goto subrequest_ended;
+    }
+
+    return;
+
+ subrequest_ended:
+    r->read_event_handler = ngx_http_block_reading;
+    ctx->current_subrequest_body_streaming = NULL;
+    return;
+    
+ error_handling:
+    ngx_http_lua_finalize_request(r, NGX_ERROR);
 }
 
 
