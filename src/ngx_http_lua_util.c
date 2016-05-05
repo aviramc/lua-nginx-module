@@ -490,7 +490,9 @@ ngx_http_lua_send_chain_link(ngx_http_request_t *r, ngx_http_lua_ctx_t *ctx,
         dd("last buf to be sent");
 
 #if 1
-        if (!r->request_body && r == r->main) {
+        if (!r->request_body
+            && r == r->main
+            && !ctx->request_body_forwarded) {
             if (ngx_http_discard_request_body(r) != NGX_OK) {
                 return NGX_ERROR;
             }

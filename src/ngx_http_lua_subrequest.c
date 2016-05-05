@@ -649,12 +649,18 @@ ngx_http_lua_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method,
     int always_forward_body, ngx_http_request_body_t *body,
     unsigned vars_action, ngx_array_t *extra_vars)
 {
+    ngx_http_lua_ctx_t          *ctx;
     ngx_http_request_t          *r;
     ngx_int_t                    rc;
     ngx_http_core_main_conf_t   *cmcf;
     size_t                       size;
 
     r = sr->parent;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_lua_module);
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
 
     sr->header_in = r->header_in;
 
@@ -699,6 +705,8 @@ ngx_http_lua_adjust_subrequest(ngx_http_request_t *sr, ngx_uint_t method,
                 }
             }
         }
+
+        ctx->request_body_forwarded = 1;
     }
 
     sr->method = method;
@@ -807,6 +815,9 @@ ngx_http_lua_subrequest_read_streaming_body(ngx_http_request_t *r)
     ngx_http_lua_ctx_t *ctx;
     ngx_http_request_t *subrequest;
     
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "lua read subrequest streaming body");
+
     /* XXX: Nginx will call this event handler because the request object is stored
             within the connection object for which an event has arrived (in the field
             connection->data). So as a hack, we call the subrequest's read handler from here.
