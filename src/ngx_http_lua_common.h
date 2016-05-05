@@ -519,6 +519,7 @@ typedef struct ngx_http_lua_ctx_s {
                                                   socket */
     unsigned         acquired_raw_req_socket:1;  /* whether a raw req socket
                                                     is acquired */
+    unsigned         request_body_forwarded:1;
 } ngx_http_lua_ctx_t;
 
 
